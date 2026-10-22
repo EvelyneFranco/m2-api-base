@@ -499,3 +499,187 @@ def test_edge_crear_sin_campo_obligatorio_devuelve_422(client: TestClient) -> No
     response = client.post("/tasks", json=payload)
 
     assert response.status_code == 422
+
+
+def test_edge_titulo_solo_espacios_devuelve_422(client: TestClient) -> None:
+    response = client.post("/tasks", json=_payload(title="   "))
+
+    assert response.status_code == 422
+
+
+# ===========================================================================
+# Tests unitarios de service
+# ===========================================================================
+# Llaman directamente a las funciones de tasks/service.py usando mocks
+# para aislar la unidad bajo prueba.
+
+from unittest.mock import MagicMock, patch
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
+
+from tasks.schemas import TaskCreate, TaskUpdate, Task
+from tasks import service as tasks_service
+
+
+def _dummy_task(**overrides) -> Task:
+    """Construye un Task válido para usar como retorno de mocks."""
+    defaults = {
+        "id": 1,
+        "title": "Tarea mock",
+        "description": None,
+        "priority": 3,
+        "user_id": 1,
+        "due_date": date.today() + timedelta(days=7),
+        "status": "todo",
+        "created_at": datetime.now(timezone.utc),
+    }
+    defaults.update(overrides)
+    return Task(**defaults)
+
+
+@patch("tasks.service.repository")
+@patch("tasks.service.users_service")
+def test_unit_create_task_llama_a_users_service(
+    mock_users_svc: MagicMock, mock_repo: MagicMock
+) -> None:
+    mock_users_svc.get_user.return_value = True
+    mock_repo.add.return_value = _dummy_task()
+    data = TaskCreate(
+        title="Test", priority=3, user_id=1,
+        due_date=date.today() + timedelta(days=7),
+    )
+
+    tasks_service.create_task(data)
+
+    mock_users_svc.get_user.assert_called_once_with(1)
+    mock_repo.add.assert_called_once()
+
+
+@patch("tasks.service.repository")
+@patch("tasks.service.users_service")
+def test_unit_create_task_usuario_inexistente_no_llama_repo_add(
+    mock_users_svc: MagicMock, mock_repo: MagicMock
+) -> None:
+    mock_users_svc.get_user.side_effect = HTTPException(status_code=404, detail="no encontrado")
+    data = TaskCreate(
+        title="Test", priority=3, user_id=999,
+        due_date=date.today() + timedelta(days=7),
+    )
+
+    try:
+        tasks_service.create_task(data)
+    except HTTPException:
+        pass
+
+    mock_repo.add.assert_not_called()
+
+
+@patch("tasks.service.repository")
+@patch("tasks.service.users_service")
+def test_unit_update_task_valida_status(
+    mock_users_svc: MagicMock, mock_repo: MagicMock
+) -> None:
+    mock_repo.get.return_value = _dummy_task()
+    data = TaskUpdate(status="invalido")
+
+    try:
+        tasks_service.update_task(1, data)
+    except HTTPException as exc:
+        assert exc.status_code == 422
+
+    mock_repo.update.assert_not_called()
+
+
+@patch("tasks.service.repository")
+@patch("tasks.service.users_service")
+def test_unit_update_task_valida_user_id_existente(
+    mock_users_svc: MagicMock, mock_repo: MagicMock
+) -> None:
+    mock_repo.get.return_value = _dummy_task()
+    mock_repo.update.return_value = _dummy_task(user_id=2)
+    mock_users_svc.get_user.return_value = True
+    data = TaskUpdate(user_id=2)
+
+    tasks_service.update_task(1, data)
+
+    mock_users_svc.get_user.assert_called_once_with(2)
+    mock_repo.update.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Propuesta: cómo mockear date.today() sin cambiar código
+# ---------------------------------------------------------------------------
+#
+# `date.today()` es un método C-level de `datetime.date`; no se puede parchear
+# con monkeypatch directamente. Opciones:
+#
+# 1. **freezegun** (`pip install freezegun`):
+#       @freeze_time("2025-01-01")
+#       def test_fecha_hoy_rechazada():
+#           ...
+#    Ventaja: congela el reloj en todo el proceso, simple y legible.
+#
+# 2. **unittest.mock** — reemplazar la clase `date` en el módulo service:
+#       with patch("tasks.service.date") as mock_date:
+#           mock_date.today.return_value = date(2025, 6, 15)
+#           mock_date.side_effect = lambda *a, **k: date(*a, **k)
+#    Ventaja: sin dependencia extra. Desventaja: hay que conservar el
+#    constructor real para que `date(...)` siga funcionando.
+#
+# 3. **Refactor** (requiere cambiar código): extraer `date.today()` a una
+#    función _now() o inyectar un "clock" — permite mockear fácilmente.
+#
+# Recomendación: freezegun es la opción más limpia sin tocar el código.
+# ---------------------------------------------------------------------------
+
+
+# ===========================================================================
+# Tests de integración
+# ===========================================================================
+# Flujo completo pasando por HTTP: crear usuario, asignar tarea, reasignar,
+# verificar.
+
+
+def test_integracion_crear_usuario_asignar_tarea_y_reasignar(
+    client: TestClient,
+) -> None:
+    # arrange — crear dos usuarios nuevos vía la API
+    user_a = client.post(
+        "/users", json={"name": "Usuario A", "email": "a@test.com"}
+    ).json()
+    user_b = client.post(
+        "/users", json={"name": "Usuario B", "email": "b@test.com"}
+    ).json()
+
+    # act — crear tarea asignada a usuario A
+    tarea = client.post("/tasks", json=_payload(user_id=user_a["id"])).json()
+    assert tarea["user_id"] == user_a["id"]
+
+    # act — reasignar la tarea a usuario B vía PATCH
+    patch_resp = client.patch(
+        f"/tasks/{tarea['id']}", json={"user_id": user_b["id"]}
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["user_id"] == user_b["id"]
+
+    # assert — verificar con GET que la reasignación persiste
+    get_resp = client.get(f"/tasks/{tarea['id']}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["user_id"] == user_b["id"]
+
+
+def test_integracion_crear_tarea_cambiar_status_y_verificar(
+    client: TestClient,
+) -> None:
+    # arrange
+    tarea = client.post("/tasks", json=_payload()).json()
+
+    # act — transicionar status
+    client.patch(f"/tasks/{tarea['id']}", json={"status": "in_progress"})
+    resp_done = client.patch(f"/tasks/{tarea['id']}", json={"status": "done"})
+
+    # assert
+    assert resp_done.status_code == 200
+    get_resp = client.get(f"/tasks/{tarea['id']}")
+    assert get_resp.json()["status"] == "done"
