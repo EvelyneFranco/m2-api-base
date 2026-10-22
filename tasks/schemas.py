@@ -5,11 +5,18 @@ crudos. Los modelos de entrada terminan en `Create` / `Update`.
 """
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaskBase(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def title_no_solo_espacios(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("El título no puede contener solo espacios")
+        return v
     description: str | None = Field(default=None, max_length=500)
     priority: int = Field(ge=1, le=5)
     user_id: int
