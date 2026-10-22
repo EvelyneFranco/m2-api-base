@@ -3,9 +3,14 @@
 Naming: test_CANN_<descripción> donde NN es el número de criterio de aceptación.
 Estilo: arrange / act / assert separados por una línea en blanco.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+from tasks import service as tasks_service
+from tasks.schemas import Task, TaskCreate, TaskUpdate
 
 
 def _fecha_futura() -> str:
@@ -512,15 +517,6 @@ def test_edge_titulo_solo_espacios_devuelve_422(client: TestClient) -> None:
 # ===========================================================================
 # Llaman directamente a las funciones de tasks/service.py usando mocks
 # para aislar la unidad bajo prueba.
-
-from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone
-
-from fastapi import HTTPException
-
-from tasks.schemas import TaskCreate, TaskUpdate, Task
-from tasks import service as tasks_service
-
 
 def _dummy_task(**overrides) -> Task:
     """Construye un Task válido para usar como retorno de mocks."""
