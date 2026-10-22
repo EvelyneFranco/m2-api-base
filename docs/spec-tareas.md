@@ -28,5 +28,5 @@ Criterios de aceptación:
 
 Definición de terminado:
 Los tests de aceptación en verde. pytest y ruff check en verde. Respeta las convenciones de CLAUDE.md.
-Debe tener una cobertura > 80% y branch" y "mutation testing ejecutado sobre tasks/.
+Debe tener una cobertura > 80% y branch y mutation testing ejecutado sobre tasks/.
 
