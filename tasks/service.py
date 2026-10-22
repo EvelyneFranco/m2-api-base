@@ -14,9 +14,14 @@ from users import service as users_service
 _VALID_STATUSES = {"todo", "in_progress", "done"}
 
 
+def today() -> date:
+    """Retorna la fecha actual. Extraída para facilitar su sustitución en tests."""
+    return date.today()
+
+
 def _validate_due_date(due_date: date) -> None:
     """Rechaza fechas que no sean estrictamente futuras."""
-    if due_date <= date.today():
+    if due_date <= today():
         raise errors.invalid_request("La fecha límite debe ser posterior a hoy")
 
 

@@ -6,6 +6,7 @@ Estilo: arrange / act / assert separados por una línea en blanco.
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -603,31 +604,18 @@ def test_unit_update_task_valida_user_id_existente(
     mock_repo.update.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Propuesta: cómo mockear date.today() sin cambiar código
-# ---------------------------------------------------------------------------
-#
-# `date.today()` es un método C-level de `datetime.date`; no se puede parchear
-# con monkeypatch directamente. Opciones:
-#
-# 1. **freezegun** (`pip install freezegun`):
-#       @freeze_time("2025-01-01")
-#       def test_fecha_hoy_rechazada():
-#           ...
-#    Ventaja: congela el reloj en todo el proceso, simple y legible.
-#
-# 2. **unittest.mock** — reemplazar la clase `date` en el módulo service:
-#       with patch("tasks.service.date") as mock_date:
-#           mock_date.today.return_value = date(2025, 6, 15)
-#           mock_date.side_effect = lambda *a, **k: date(*a, **k)
-#    Ventaja: sin dependencia extra. Desventaja: hay que conservar el
-#    constructor real para que `date(...)` siga funcionando.
-#
-# 3. **Refactor** (requiere cambiar código): extraer `date.today()` a una
-#    función _now() o inyectar un "clock" — permite mockear fácilmente.
-#
-# Recomendación: freezegun es la opción más limpia sin tocar el código.
-# ---------------------------------------------------------------------------
+def test_unit_due_date_igual_a_hoy_da_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    fecha_fija = date(2026, 6, 15)
+    monkeypatch.setattr(tasks_service, "today", lambda: fecha_fija)
+
+    data = TaskCreate(
+        title="Test", priority=3, user_id=1, due_date=fecha_fija,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        tasks_service.create_task(data)
+
+    assert exc_info.value.status_code == 422
 
 
 # ===========================================================================
