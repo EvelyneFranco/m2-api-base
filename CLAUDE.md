@@ -61,7 +61,7 @@ pip install -r requirements.txt
 uvicorn main:app --reload          # API en http://127.0.0.1:8000  ·  /docs para el Swagger
 pytest                             # tests
 pytest --cov=. --cov-branch --cov-report=term-missing   # cobertura líneas + branch (meta >80%)
-mutmut run --paths-to-mutate=tasks/                      # mutation testing sobre tasks/
+# mutation testing: manual — mutar una línea de tasks/, correr pytest, revertir con git checkout tasks/
 ruff check .                       # linter
 ```
 
